@@ -99,15 +99,35 @@ public class ServerDecoder extends ReplayingDecoder<ServerDecoder.Phase> {
             case READ_PAYLOAD:
                 if(message.messageType == EnumUtil.MessageType.CONNECT){
                     ChannelBufferInputStream in = new ChannelBufferInputStream(buffer);
+                    buffer.markReaderIndex();
+                    int length = buffer.readUnsignedShort()+2;
+                    buffer.resetReaderIndex();
                     message.clientIdentifier = in.readUTF();
                     if((message.connectFlags&0x02) == 0x02){
+                        buffer.markReaderIndex();
+                        length+=buffer.readUnsignedShort()+2;
+                        buffer.resetReaderIndex();
                         message.willTopic = in.readUTF();
+                        buffer.markReaderIndex();
+                        int byteLen = buffer.readUnsignedShort();
+                        length+=byteLen+2;
+                        message.willMessageByte = new byte[byteLen];
+                        in.read(message.willMessageByte);
+                        buffer.resetReaderIndex();
                         message.willMessage = in.readUTF();
+
                     }
-                    if((message.connectFlags>>7) == 0x01){
+
+                    //for compatibility with mqttv3 the Remaining Length field from the fixed header takes precedence over the User Name flag.
+                    // Server implementations must allow for the possibility that the
+                    // User Name flag is set, but the User Name string is missing. This is valid, and connections should be allowed to continue.
+                    if((message.connectFlags>>7) == 0x01&&message.remainLength-message.variableHeaderLength-length>0){
+                        buffer.markReaderIndex();
+                        length+=buffer.readUnsignedShort()+2;
+                        buffer.resetReaderIndex();
                         message.username = in.readUTF();
                     }
-                    if(((message.connectFlags<<1)>>7) == 0x01){
+                    if(((message.connectFlags<<1)>>7) == 0x01&&message.remainLength-message.variableHeaderLength-length>0){
                         message.password = in.readUTF();
                     }
                 } else if(message.messageType == EnumUtil.MessageType.PUBLISH){

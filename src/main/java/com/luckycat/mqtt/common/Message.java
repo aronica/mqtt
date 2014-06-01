@@ -16,6 +16,7 @@ public class Message {
     public int variableHeaderLength;
 
     /** variable header**/
+    public byte[] variableHeader;
     //CONNECT
     public String protocalName;
     public byte protocalVersion;
@@ -37,6 +38,7 @@ public class Message {
     public String clientIdentifier;
     public String willTopic;
     public String willMessage;
+    public byte[] willMessageByte;
     public String username;
     public String password;
 
