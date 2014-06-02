@@ -27,6 +27,7 @@ public class Message {
     //PUBLISH
     public String topicName;
     public int messageId;
+    public byte[] messageIdByte;
 
 
     //PUBLISH, PUBACK, PUBREC, PUBREL, PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK
@@ -45,4 +46,5 @@ public class Message {
     //SUBSCRIBE
     public String[] topic;
     public byte[] topicQosLevel;
+    public byte[] payload;
 }

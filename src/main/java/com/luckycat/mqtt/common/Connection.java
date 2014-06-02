@@ -16,6 +16,9 @@ public class Connection {
     public long connectedTime;
     public long id;
     public Channel channel;
+    public boolean clearSession;
+    public String clientIdentifier;
+    public long disconnectingTime;
 
     public Connection(){
 

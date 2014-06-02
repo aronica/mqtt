@@ -12,8 +12,13 @@ public class Topic {
     public String name;
     public short sendMessageId;
     public short receiverMessageId;
+    public EnumUtil.QoS qos;
 
     public Topic(String name){this.name = name;}
+    public Topic(String name,EnumUtil.QoS qoS){
+        this.name = name;
+        this.qos = qos;
+    }
     public static void main(String[] args){
         System.out.println(Integer.toBinaryString(0x80));
     }

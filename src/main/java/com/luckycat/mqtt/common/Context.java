@@ -18,6 +18,9 @@ public class Context {
     public static final long NO_CONNECT_MSG_TIMEOUT = 1000;
     public static final String NO_CONNECT_MSG_TIMEOUT_KEY = "no.connect.msg.timeout";
 
+    public static final long NO_DISCONNECT_TIMEOUT = 1000;
+    public static final String NO_DISCONNECT_TIMEOUT_KEY = "no.disconnect.timeout";
+
     public static final String PROTOCAL_NAME_KEY = "mqtt.protocal.name";
     public static final String PROTOCAL_NAME_DEFAULT = "MQIsdp";
     public static final String PROTOCAL_VERSION_KEY = "mqtt.protocal.name";
@@ -37,10 +40,19 @@ public class Context {
         return noConnectMsgTimeout;
     }
 
-    public void setNoConnectMsgTimeout(long noConnectMsgTimeout) {
+    public void setNoConnectMsgTimeout(long noDisConnectMsgTimeout) {
         this.noConnectMsgTimeout = noConnectMsgTimeout;
     }
 
+    public long geDisConnectTimeout() {
+        return config.getLong(NO_DISCONNECT_TIMEOUT_KEY,NO_DISCONNECT_TIMEOUT);
+    }
+
+    public void setNoDisConnectMsgTimeout(long noDisConnectTimeout) {
+        this.noDisConnectTimeout = noDisConnectTimeout;
+    }
+
+    private long noDisConnectTimeout = NO_DISCONNECT_TIMEOUT;
     private long noConnectMsgTimeout = NO_CONNECT_MSG_TIMEOUT;
 
     private Context(){
