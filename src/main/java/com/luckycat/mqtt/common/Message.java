@@ -1,5 +1,7 @@
 package com.luckycat.mqtt.common;
 
+import java.nio.ByteBuffer;
+
 /**
  * User: fafu
  * Date: 14-5-26
@@ -38,8 +40,8 @@ public class Message {
     //CONNECT
     public String clientIdentifier;
     public String willTopic;
-    public String willMessage;
-    public byte[] willMessageByte;
+  //  public String willMessage;
+    public ByteBuffer willMessageByte;
     public String username;
     public String password;
 

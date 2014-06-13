@@ -8,6 +8,7 @@ import org.jboss.netty.handler.codec.replay.ReplayingDecoder;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -108,13 +109,15 @@ public class ServerDecoder extends ReplayingDecoder<ServerDecoder.Phase> {
                         length+=buffer.readUnsignedShort()+2;
                         buffer.resetReaderIndex();
                         message.willTopic = in.readUTF();
-                        buffer.markReaderIndex();
+                      //  buffer.markReaderIndex();
                         int byteLen = buffer.readUnsignedShort();
                         length+=byteLen+2;
-                        message.willMessageByte = new byte[byteLen];
-                        in.read(message.willMessageByte);
-                        buffer.resetReaderIndex();
-                        message.willMessage = in.readUTF();
+
+                        byte[] b = new byte[byteLen];
+                        in.read(b);
+                        message.willMessageByte = ByteBuffer.wrap(b);
+                       // buffer.resetReaderIndex();
+//                        message.willMessage = in.readUTF();
 
                     }
 
