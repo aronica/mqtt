@@ -1,4 +1,5 @@
 package com.luckycat.mqtt.common;
+import java.io.UnsupportedEncodingException;
 import java.util.List;
 
 import static com.luckycat.mqtt.common.EnumUtil.*;
@@ -75,6 +76,25 @@ public class MessageFactory {
         Message message = new Message();
         message.messageType = MessageType.PINGRESP;
         message.remainLength = 0;
+        return message;
+    }
+
+    public static Message newWillPublishMessage(Message m2) {
+        Message message = new Message();
+        message.messageType = MessageType.PUBLISH;
+        message.qos = EnumUtil.QoS.values()[((m2.connectFlags>>3)&0x03)];
+        message.clientIdentifier = m2.clientIdentifier;
+        message.topicName = m2.willTopic;
+        message.messageId = 1;
+        message.info = m2.willMessageByte.array();
+        message.Retain = (byte)((m2.connectFlags>>5)&0x01);
+        try {
+            message.remainLength = message.topicName.getBytes("UTF-8").length+
+                    ((message.qos== QoS.ALO||message.qos==QoS.EO)?2:0)+
+            message.info.length;
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
         return message;
     }
 }

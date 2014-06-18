@@ -10,7 +10,7 @@ import java.nio.ByteBuffer;
  */
 public class Message {
     public EnumUtil.MessageType messageType;
-    public byte DUP = 0x00;
+    public byte UDP = 0x00;
     public EnumUtil.QoS qos;
     public byte Retain = 0x00;
     public int remainLength;
@@ -23,7 +23,7 @@ public class Message {
     public String protocalName;
     public byte protocalVersion;
     public byte connectFlags;
-    public byte[] keepAliveTimer;
+    public int keepAliveTimer;
     //CONNACK
     public byte returnCode;
     //PUBLISH

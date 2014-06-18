@@ -8,9 +8,9 @@ import com.lmax.disruptor.EventFactory;
  * Time: 上午10:33
  * This class is
  */
-public class PublishEventFactory implements EventFactory<PublishEvent> {
+public class PublishEventFactory implements EventFactory<Event> {
     @Override
-    public PublishEvent newInstance() {
-        return new PublishEvent();
+    public Event newInstance() {
+        return new Event();
     }
 }

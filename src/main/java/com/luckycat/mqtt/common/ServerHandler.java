@@ -3,8 +3,13 @@ package com.luckycat.mqtt.common;
 import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
+import io.netty.util.internal.chmv8.ConcurrentHashMapV8;
 import org.jboss.netty.channel.*;
+import org.jboss.netty.handler.timeout.IdleState;
+import org.jboss.netty.handler.timeout.IdleStateAwareChannelHandler;
+import org.jboss.netty.handler.timeout.IdleStateEvent;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,31 +22,25 @@ import java.util.concurrent.Executors;
  * Time: 上午10:50
  * This class is
  */
-public class ServerHandler extends SimpleChannelHandler {
+public class ServerHandler extends IdleStateAwareChannelHandler {
     private ArrayBlockingQueue<Connection> connectionQueue = new ArrayBlockingQueue<Connection>(1000000);
     private Context context;
 
     private ConcurrentHashMap<Channel,Session> sessionMap = new ConcurrentHashMap<Channel,Session>();
 //    private ConcurrentHashMap<String,Topic> topicMap = new ConcurrentHashMap<String,Topic>();
-    private ConcurrentHashMap<String,Set<Topic>> userSubTopicMap = new ConcurrentHashMap<String,Set<Topic>>();
+    private Map<Session,Set<Subscription>> userSubTopicMap = new HashMap<Session,Set<Subscription>>();
     private ConcurrentHashMap<String,Set<Session>> topicSubMap = new ConcurrentHashMap<String,Set<Session>>();
     private TrieTreeMap<Subscription> topicMap = new TrieTreeMap<Subscription>();
+    private ConcurrentHashMapV8<String,Message> messageMap = new ConcurrentHashMapV8<String, Message>();
 
     Executor executor = Executors.newCachedThreadPool();
 
-    // The factory for the event
     PublishEventFactory factory = new PublishEventFactory();
 
-    // Specify the size of the ring buffer, must be power of 2.
     int bufferSize = 1024;
 
-    // Construct the Disruptor
-    Disruptor<PublishEvent> disruptor = new Disruptor<PublishEvent>(factory, bufferSize, executor);
-
-
-
-    // Get the ring buffer from the Disruptor to be used for publishing.
-    RingBuffer<PublishEvent> ringBuffer = disruptor.getRingBuffer();
+    Disruptor<Event> disruptor = new Disruptor<Event>(factory, bufferSize, executor);
+    RingBuffer<Event> ringBuffer = disruptor.getRingBuffer();
 
     private Map<String,String> up = new HashMap<String,String>();
     {
@@ -87,32 +86,102 @@ public class ServerHandler extends SimpleChannelHandler {
         disruptor.start();
     }
 
-    public class MqttEventHandler implements EventHandler<PublishEvent> {
-        @Override
-        public void onEvent(PublishEvent event, long sequence, boolean endOfBatch) throws Exception {
-            System.out.println(sequence+","+endOfBatch);
-            Set<Subscription> set = topicMap.gets(event.topic.name);
-            for(Subscription sub:set){
-                sub.session.conn.channel.write(event.topic.message);
+    @Override
+    public void channelIdle(ChannelHandlerContext ctx, IdleStateEvent e) throws Exception {
+        super.channelIdle(ctx, e);
+        if (e.getState() == IdleState.READER_IDLE) {
+            Channel channel = ctx.getChannel();
+            Session session = (Session)sessionMap.get(channel);
+            if(session.willTopic!= null&&session.willMessage!=null){
+
             }
+            e.getChannel().close();
+        }
+    }
+
+    private void processPublishEvent(Message message,Session session){
+        if(message.qos== EnumUtil.QoS.AMO){
+            //do nothing for qos amo
+            Set<Subscription> subs = topicMap.gets(message.topicName);
+            EnumUtil.QoS sourceQos = message.qos;
+            for(Subscription sub:subs){
+                message.qos = sourceQos.compareTo(sub.qos)>0?sub.qos:sourceQos;
+                sub.session.conn.channel.write(message);
+            }
+        }else if(message.qos== EnumUtil.QoS.ALO){
+            Message puback = MessageFactory.newPubackMessage(message.messageId);
+            session.conn.channel.write(puback);
+            Set<Subscription> subs = topicMap.gets(message.topicName);
+            EnumUtil.QoS sourceQos = message.qos;
+            for(Subscription sub:subs){
+                message.qos = sourceQos.compareTo(sub.qos)>0?sub.qos:sourceQos;
+                sub.session.conn.channel.write(message);
+            }
+            return;
+        } else if(message.qos == EnumUtil.QoS.EO){
+            Message pubrec = MessageFactory.newPubrecMessage(message.messageId);
+            session.conn.channel.write(pubrec);
+            messageMap.put(session.clientIdentifier+"_"+message.messageId,message);
+            return;
+        }
+    }
+
+    public class MqttEventHandler implements EventHandler<Event> {
+        @Override
+        public void onEvent(Event event, long sequence, boolean endOfBatch) throws Exception {
+            System.out.println(sequence+","+endOfBatch);
+            Message message = event.message;
+            Channel channel = event.session.conn.channel;
+            switch(event.message.messageType){
+                case PUBLISH:
+                    processPublishEvent(message,event.session);
+                    break;
+                case PUBACK:
+                    break;
+                case PUBREC:
+                    Message pubrec = MessageFactory.newPubrecMessage(message.messageId);
+                    channel.write(pubrec);
+                    return;
+                case PUBREL:
+                    channel.write(MessageFactory.newPubcomMessage(message.messageId));
+                    EnumUtil.QoS sourceQos = message.qos;
+                    Set<Subscription> subs = topicMap.gets(event.message.topicName);
+                    for(Subscription sub:subs){
+                        message.qos = sourceQos.compareTo(sub.qos)>0?sub.qos:sourceQos;
+                        sub.session.conn.channel.write(message);
+                    }
+                    messageMap.remove(event.session.clientIdentifier+"_"+message.messageId);
+                    break;
+                case DISCONNECT:
+                    event.session.conn.status = EnumUtil.Status.DISCONNECTING;
+                    if(event.session.conn.clearSession){
+                        sessionMap.remove(event.session.conn.clientIdentifier);
+                    }
+                    //channel.close();
+                    event.session.conn.disconnectingTime = System.currentTimeMillis();
+                    break;
+                default:;
+            }
+
         }
     }
 
     public class PublishEventProducer{
-        private final RingBuffer<PublishEvent> ringBuffer;
+        private final RingBuffer<Event> ringBuffer;
 
-        public PublishEventProducer(RingBuffer<PublishEvent> ringBuffer)
+        public PublishEventProducer(RingBuffer<Event> ringBuffer)
         {
             this.ringBuffer = ringBuffer;
         }
 
-        public void onData(Topic topic)
+        public void onData(Message message,Session session)
         {
             long sequence = ringBuffer.next();
             try
             {
-                PublishEvent event = ringBuffer.get(sequence);
-                event.topic = topic;
+                Event event = ringBuffer.get(sequence);
+                event.session = session;
+                event.message = message;
             }
             finally
             {
@@ -136,8 +205,6 @@ public class ServerHandler extends SimpleChannelHandler {
             return;
         }
         switch(message.messageType){
-            case Reserved:
-                break;
             case CONNECT:
                 String clientIdentifier = message.clientIdentifier;
                 //old client identifier already exists, then the old session should be disconnected and new session should
@@ -168,118 +235,75 @@ public class ServerHandler extends SimpleChannelHandler {
                     }
                 }
                 if(message.willTopic!= null && message.willMessageByte != null){
-                    Topic topic = new Topic(message.willTopic,message);
-                    producer.onData(topic);
+                    ByteBuffer bb = message.willMessageByte.duplicate();
+                    bb.mark();
+                    char length = bb.getChar();
+                    byte[] b = new byte[length];
+                    bb.get(b);
+                    for(int i = 0; i<length;i++){
+                        if(b[i]<0){
+                            //TODO will message content should be character less than 0x7F
+                            channel.write(MessageFactory.newConnackMessage(EnumUtil.ReturnCode.REFUSED_PROTOCAL_ERROR));
+                            channel.close();
+                            return;
+                        }
+                    }
+                    bb.reset();
+                    Message m2 = MessageFactory.newWillPublishMessage(message);
+                    processPublishEvent(m2,session);
+                    //Subscription sub = new Subscription(message.willTopic);
                    // topic.add(message.willMessageByte);
                 }
                 conn.status = EnumUtil.Status.CONNECTED;
                 conn.clearSession = (message.connectFlags&0x01)==1?true:false;
                 conn.clientIdentifier = clientIdentifier;
                 conn.connectedTime = System.currentTimeMillis();
-                session = new Session(message.clientIdentifier,message.username,message.password,conn);
+                boolean cleanSession = (message.connectFlags>1)&0x01==1?true:false;
+                session = new Session(message.clientIdentifier,message.username,
+                        message.password,conn,message.willTopic,message.willMessageByte,
+                        message.keepAliveTimer,cleanSession);
+                //ctx.getChannel().getPipeline()
+                session.setIdleTime((int)Math.round(message.keepAliveTimer*1.5));
                 sessionMap.put(channel,session);
                 channel.write(MessageFactory.newConnackMessage(EnumUtil.ReturnCode.ACCEPT));
                 break;
-            case CONNACK:
-                break;
             case PUBLISH:
-                if(message.qos== EnumUtil.QoS.ALO){
-
-                }else if(message.qos== EnumUtil.QoS.ALO){
-                    String topicName = message.topicName;
-                    int messageId = message.messageId;
-                    Subscription topic = topicMap.get(message.willTopic);
-
-                    if( topic == null){
-                        topic = new Subscription(topicName, session);
-                        topicMap.put(topicName, topic);
-                    }
-
-                    //topic.add(message.payload);
-                    Set<Topic> set = new LinkedHashSet<Topic>();
-                    set = userSubTopicMap.putIfAbsent(message.clientIdentifier,set);
-//                    set.add(topic);
-                    Message puback = MessageFactory.newPubackMessage(messageId);
-                    channel.write(puback);
-                    return;
-                } else if(message.qos == EnumUtil.QoS.EO){
-                    String topicName = message.topicName;
-                    int messageId = message.messageId;
-//                    Topic topic = topicMap.get(topicName);
-//                    if( topic == null){
-//                        topic = new Topic(topicName, EnumUtil.QoS.EO);
-//                        topicMap.put(topicName,topic);
-//                    }
-                    Set<Topic> set = new LinkedHashSet<Topic>();
-                    set = userSubTopicMap.putIfAbsent(message.clientIdentifier,set);
-//                    set.add(topic);
-//                    topic.add(message.payload);
-                    Message puback = MessageFactory.newPubrecMessage(messageId);
-                    channel.write(puback);
-                    return;
-                }
-                break;
-            case PUBACK:
-                break;
             case PUBREC:
-                channel.write(MessageFactory.newPubrelMessage(message.messageId));
-                break;
             case PUBREL:
-                channel.write(MessageFactory.newPubcomMessage(message.messageId));
+                producer.onData(message, session);
                 return;
-            case PUBCOMP:
-                break;
             case SUBSCRIBE:
                 List<EnumUtil.QoS> qosList = new ArrayList<EnumUtil.QoS>();
                 for(int i = 0 ;i<message.topic.length;i++){
                     String topicName = message.topic[i];
-                    Set<Subscription> topic = topicMap.gets(topicName);
-                    if(topic == null||topic.size()==0){
-//                        topic = new Topic(topicName,message.qos);
-//                        topicMap.put(topicName, topic);
-                    }
-//                    EnumUtil.QoS sourceQos = topic.qos;
-                    EnumUtil.QoS subQos = EnumUtil.QoS.values()[message.topicQosLevel[i]];
-//                    EnumUtil.QoS qosNeed = sourceQos.compareTo(subQos)>0?subQos:sourceQos;
-//                    qosList.add(qosNeed);
+                    Subscription sub = new Subscription(topicName,session,EnumUtil.QoS.values()[((int)(message.topicQosLevel[i]))]);
+                    topicMap.subscribe(topicName,sub);
                 }
                 channel.write(MessageFactory.newSubackMessage(message.messageId, qosList));
-                break;
-            case SUBACK:
                 break;
             case UNSUBSCRIBE:
                 int messageId = message.messageId;
                 for(int i = 0 ;i<message.topic.length;i++){
                     String topicName = message.topic[i];
-//                    Topic topic = topicMap.get(topicName);
-//                    if(topic == null){
-//                        topic = new Topic(topicName,message.qos);
-//                        topicMap.put(topicName, topic);
-//                    }
-                    Set<Topic> topics = userSubTopicMap.get(topicName);
-                   // topics.remove(topic);
-                    Set<Session> sessions =  topicSubMap.get(topicName);
-                    sessions.remove(session);
+                    Subscription sub = new Subscription(topicName,session,EnumUtil.QoS.values()[((int)(message.topicQosLevel[i]))]);
+                    topicMap.unsubscribe(topicName, sub);
                 }
                 channel.write(MessageFactory.newUnsubackMessage(messageId)) ;
-                break;
-            case UNSUBACK:
                 break;
             case PINGREQ:
                 channel.write(MessageFactory.newPinrespMessage());
                 break;
-            case PINGRESP:
-                //Ignore this situation since pingresp will never received by the server.
-                break;
             case DISCONNECT:
-                conn.status = EnumUtil.Status.DISCONNECTING;
-                if(conn.clearSession){
-                    sessionMap.remove(conn.clientIdentifier);
+                if(session.cleanSession){
+                    Set<Subscription> sub =  userSubTopicMap.get(session);
+                    if(sub!=null&&sub.size()>0){
+                        for(Subscription s:sub)
+                        topicMap.unsubscribe(s.key,s);
+                    }
                 }
-                //channel.close();
-                conn.disconnectingTime = System.currentTimeMillis();
-                break;
-            case Reserved2:
+                Map map = (Map)channel.getAttachment();
+                map.put("status","disconnecting");
+//                channel.disconnect();
                 break;
             default:
                 ;
@@ -289,14 +313,17 @@ public class ServerHandler extends SimpleChannelHandler {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
         super.exceptionCaught(ctx, e);
+        ctx.getChannel().disconnect();
     }
 
     @Override
     public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
         super.channelConnected(ctx, e);
         Connection conn = ConnectionFactory.newConnection(ctx.getChannel());
+        Map map = new HashMap();
+        map.put("connection",conn);
         connectionQueue.add(conn);
         Channel channel = ctx.getChannel();
-        channel.setAttachment(conn);
+        channel.setAttachment(map);
     }
 }

@@ -13,8 +13,8 @@ import org.slf4j.LoggerFactory;
  * Time: 下午1:44
  * This class is
  */
-public class Context {
-    private static final Logger LOG = LoggerFactory.getLogger(Context.class);
+public class Config {
+    private static final Logger LOG = LoggerFactory.getLogger(Config.class);
     public static final long NO_CONNECT_MSG_TIMEOUT = 1000;
     public static final String NO_CONNECT_MSG_TIMEOUT_KEY = "no.connect.msg.timeout";
 
@@ -55,11 +55,11 @@ public class Context {
     private long noDisConnectTimeout = NO_DISCONNECT_TIMEOUT;
     private long noConnectMsgTimeout = NO_CONNECT_MSG_TIMEOUT;
 
-    private Context(){
+    private Config(){
 
     }
 
-    public Context(String properties){
+    public Config(String properties){
         try {
             config = new PropertiesConfiguration(properties);
         } catch (ConfigurationException e) {

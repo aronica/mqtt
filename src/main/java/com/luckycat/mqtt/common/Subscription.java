@@ -10,11 +10,13 @@ public class Subscription {
     public String key;
     public Session session;
     public long subTime;
+    public EnumUtil.QoS qos;
 
-    public Subscription(String key,Session session){
+    public Subscription(String key,Session session,EnumUtil.QoS qos){
         this.key = key;
         this.session = session;
         this.subTime = System.currentTimeMillis();
+        this.qos = qos;
     }
 
 }

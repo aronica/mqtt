@@ -48,15 +48,21 @@ public class ServerDecoder extends ReplayingDecoder<ServerDecoder.Phase> {
         data.set(channel,message);
         switch(state){
             case READ_FIX_HEAD:
+                if(buffer.readableBytes()<2){
+                    return null;
+                }
                 byte[] fixedHeader = new byte[4];
                 buffer.readBytes(fixedHeader);
                 message.messageType = EnumUtil.MessageType.values()[(int)fixedHeader[0]>>4];
-                message.DUP = (byte)(fixedHeader[0]>>3&0x1);
+                message.UDP = (byte)(fixedHeader[0]>>3&0x1);
                 message.qos = EnumUtil.QoS.values()[(byte)(fixedHeader[0]>>1&0x3)];
                 message.remainLength = decodeRemainLength(buffer);
                 data.set(channel,message);
                 checkpoint(Phase.READ_VARIABLE_HEAD);
             case READ_VARIABLE_HEAD:
+                if(buffer.readableBytes()<message.remainLength){
+                    return null;
+                }
                 if(message.messageType == EnumUtil.MessageType.CONNECT){
                     buffer.markReaderIndex();
                     int length = buffer.readUnsignedShort();
@@ -65,8 +71,7 @@ public class ServerDecoder extends ReplayingDecoder<ServerDecoder.Phase> {
                     message.protocalName = in.readUTF();
                     message.protocalVersion = in.readByte();
                     message.connectFlags = in.readByte();
-                    message.keepAliveTimer = new byte[2];
-                    in.read( message.keepAliveTimer);
+                    message.keepAliveTimer = in.readUnsignedShort();
                     message.variableHeaderLength = length+5;
                 }else if(message.messageType == EnumUtil.MessageType.CONNACK) {
                     message.returnCode = buffer.readByte();
@@ -95,9 +100,9 @@ public class ServerDecoder extends ReplayingDecoder<ServerDecoder.Phase> {
                     message.messageId = buffer.readUnsignedShort();
                     message.variableHeaderLength = 2;
                 }
-                data.set(channel,message);
-                checkpoint(Phase.READ_PAYLOAD);
-            case READ_PAYLOAD:
+//                data.set(channel,message);
+//                checkpoint(Phase.READ_PAYLOAD);
+//            case READ_PAYLOAD:
                 if(message.messageType == EnumUtil.MessageType.CONNECT){
                     ChannelBufferInputStream in = new ChannelBufferInputStream(buffer);
                     buffer.markReaderIndex();
